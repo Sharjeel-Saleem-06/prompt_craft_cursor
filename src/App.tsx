@@ -18,19 +18,39 @@ import Cheatsheet from './pages/Cheatsheet'
 import { getGuide } from './data/parser'
 import { useProgress } from './hooks/useProgress'
 
-function PageWrapper({ children }: { children: React.ReactNode }) {
+// Wraps a single page — key resets ErrorBoundary and re-triggers animation on every route change
+function AnimatedPage({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      transition={{ duration: 0.22, ease: 'easeOut' }}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
+function AppRoutes() {
   const location = useLocation()
+
   return (
     <AnimatePresence mode="wait">
-      <motion.div
-        key={location.pathname}
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -8 }}
-        transition={{ duration: 0.25, ease: 'easeOut' }}
-      >
-        {children}
-      </motion.div>
+      {/* key changes on every pathname → AnimatePresence exit/enter fires correctly */}
+      <ErrorBoundary key={location.pathname}>
+        <Routes location={location} key={location.pathname}>
+          <Route path="/" element={<AnimatedPage><Dashboard /></AnimatedPage>} />
+          <Route path="/guide" element={<AnimatedPage><GuidePage /></AnimatedPage>} />
+          <Route path="/techniques" element={<AnimatedPage><Techniques /></AnimatedPage>} />
+          <Route path="/mcp" element={<AnimatedPage><MCPPage /></AnimatedPage>} />
+          <Route path="/workflows" element={<AnimatedPage><Workflows /></AnimatedPage>} />
+          <Route path="/prompt-lab" element={<AnimatedPage><PromptLab /></AnimatedPage>} />
+          <Route path="/cheatsheet" element={<AnimatedPage><Cheatsheet /></AnimatedPage>} />
+          {/* Catch-all */}
+          <Route path="*" element={<AnimatedPage><Dashboard /></AnimatedPage>} />
+        </Routes>
+      </ErrorBoundary>
     </AnimatePresence>
   )
 }
@@ -40,7 +60,7 @@ function AppContent() {
   const guide = getGuide()
   const { count } = useProgress(guide.totalSections)
 
-  // Global Cmd+K to open search
+  // Global Cmd+K / Ctrl+K to open search
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -63,21 +83,7 @@ function AppContent() {
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 
       <main className="min-h-[calc(100vh-4rem)]">
-        <ErrorBoundary>
-          <PageWrapper>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/guide" element={<GuidePage />} />
-              <Route path="/techniques" element={<Techniques />} />
-              <Route path="/mcp" element={<MCPPage />} />
-              <Route path="/workflows" element={<Workflows />} />
-              <Route path="/prompt-lab" element={<PromptLab />} />
-              <Route path="/cheatsheet" element={<Cheatsheet />} />
-              {/* Catch-all redirect to home */}
-              <Route path="*" element={<Dashboard />} />
-            </Routes>
-          </PageWrapper>
-        </ErrorBoundary>
+        <AppRoutes />
       </main>
 
       <footer className="border-t border-white/5 mt-16 py-8">
