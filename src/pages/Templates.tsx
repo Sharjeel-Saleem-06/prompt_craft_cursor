@@ -80,6 +80,49 @@ interface EnhanceResult {
     splitPrompts: string[]
 }
 
+// Robust JSON parser — handles all LLM output variants
+function parseGroqJSON(raw: string): EnhanceResult {
+    // Step 1: strip any backtick fence: ```json, ```, ``` \n, etc.
+    let text = raw.replace(/^```[a-zA-Z]*\s*/m, '').replace(/```\s*$/m, '').trim()
+
+    // Step 2: try direct parse
+    try {
+        return JSON.parse(text) as EnhanceResult
+    } catch { /* continue */ }
+
+    // Step 3: escape literal newlines/tabs inside the JSON block
+    const escaped = text.replace(/\\n/g, '\u001ANEWLINE\u001A') // protect already-escaped \n
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t')
+        .replace(/\u001ANEWLINE\u001A/g, '\\n')
+    try {
+        return JSON.parse(escaped) as EnhanceResult
+    } catch { /* continue */ }
+
+    // Step 4: extract the first {...} block from raw response regardless of surrounding text
+    const match = raw.match(/\{[\s\S]*\}/)
+    if (match) {
+        try {
+            return JSON.parse(match[0]) as EnhanceResult
+        } catch { /* continue */ }
+
+        // Step 5: escape control chars inside the extracted block too
+        const cleanedBlock = match[0]
+            .replace(/\\n/g, '\u001ANEWLINE\u001A')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t')
+            .replace(/\u001ANEWLINE\u001A/g, '\\n')
+        try {
+            return JSON.parse(cleanedBlock) as EnhanceResult
+        } catch { /* fall through */ }
+    }
+
+    console.error('All JSON parse attempts failed. Raw response:', raw)
+    throw new Error('The AI response could not be parsed. Please try again.')
+}
+
 async function enhancePrompt(userPrompt: string): Promise<EnhanceResult> {
     if (GROQ_KEYS.length === 0) {
         throw new Error('Groq API keys missing. Set VITE_GROQ_KEY_1 in your .env file or deployment config.')
@@ -122,33 +165,14 @@ async function enhancePrompt(userPrompt: string): Promise<EnhanceResult> {
             if (!res2.ok) throw new Error(`API error: ${res2.status}`)
             const data2 = await res2.json()
             const text2 = data2.choices[0].message.content as string
-            let clean2 = text2.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
-            try {
-                return JSON.parse(clean2) as EnhanceResult
-            } catch {
-                clean2 = clean2.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
-                return JSON.parse(clean2) as EnhanceResult
-            }
+            return parseGroqJSON(text2)
         }
         throw new Error(`API error: ${res.status}`)
     }
 
     const data = await res.json()
     const text = data.choices[0].message.content as string
-    // Strip possible markdown code fences
-    let clean = text.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim()
-    try {
-        return JSON.parse(clean) as EnhanceResult
-    } catch (e) {
-        // Fallback for unescaped newlines/tabs inside JSON strings
-        clean = clean.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
-        try {
-            return JSON.parse(clean) as EnhanceResult
-        } catch (e2) {
-            console.error('Failed to parse clean JSON:', clean)
-            throw new Error('LLM returned malformed JSON')
-        }
-    }
+    return parseGroqJSON(text)
 }
 
 // ─── AI Enhancer Component ────────────────────────────────────────────────────
